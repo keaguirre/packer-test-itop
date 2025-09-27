@@ -137,6 +137,7 @@ aws ec2 terminate-instances --instance-ids i-xxxxxxxxx
 
 # O mantenerla si quieres seguir probando
 
+```
 ```mermaid
 ---
 config:
@@ -205,3 +206,4 @@ flowchart RL
 
 ```
 ```
+
