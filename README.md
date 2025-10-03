@@ -136,8 +136,8 @@ curl -I http://$PUBLIC_IP/
 aws ec2 terminate-instances --instance-ids i-xxxxxxxxx
 
 # O mantenerla si quieres seguir probando
-
 ```
+## 7. Diagrama de Arquitectura
 ```mermaid
 ---
 config:
@@ -205,5 +205,3 @@ flowchart RL
     IAM["IAM Roles"] --> APP & Lambda1
 
 ```
-```
-

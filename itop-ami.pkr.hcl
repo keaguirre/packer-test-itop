@@ -4,10 +4,6 @@ packer {
       source  = "github.com/hashicorp/amazon"
       version = "~> 1"
     }
-    ansible = {
-      source  = "github.com/hashicorp/ansible"
-      version = "~> 1"
-    }
   }
 }
 
@@ -26,8 +22,14 @@ variable "instance_type" {
 
 variable "ami_name_prefix" {
   type    = string
-  default = "itop-server"
+  default = "itop-lab"
   description = "Prefijo para el nombre de la AMI"
+}
+
+variable "source_ami_owner" {
+  type    = string
+  default = "099720109477"
+  description = "Owner de la AMI base (Canonical para Ubuntu)"
 }
 
 # Configuración de la fuente
@@ -44,96 +46,170 @@ source "amazon-ebs" "ubuntu" {
       virtualization-type = "hvm"
     }
     most_recent = true
-    owners      = ["099720109477"] # Canonical
+    owners      = [var.source_ami_owner]
   }
  
   ssh_username = "ubuntu"
+  ssh_timeout  = "20m"
  
   # Configuración del volumen root
   launch_block_device_mappings {
-    device_name = "/dev/sda1"
-    volume_size = 20
-    volume_type = "gp3"
+    device_name           = "/dev/sda1"
+    volume_size          = 20
+    volume_type          = "gp3"
     delete_on_termination = true
   }
  
   tags = {
-    Name = "${var.ami_name_prefix}-{{timestamp}}"
-    Environment = "production"
+    Name        = "${var.ami_name_prefix}-{{timestamp}}"
+    Environment = "lab"
     Application = "iTop"
-    Built-with = "Packer"
-    Built-on = "{{timestamp}}"
+    Built-with  = "Packer"
+    Built-on    = "{{timestamp}}"
+    Version     = "1.0-lab"
   }
 }
 
 # Build
 build {
-  name = "itop-ami"
+  name = "itop-lab-ami"
   sources = ["source.amazon-ebs.ubuntu"]
  
-  # Actualizar el sistema e instalar dependencias básicas
+  # Actualizar sistema base
   provisioner "shell" {
     inline = [
+      "echo 'Actualizando sistema base...'",
       "sudo apt-get update",
-      "sudo apt-get upgrade -y",
-      "sudo apt-get install -y software-properties-common git curl"
+      "sudo apt-get upgrade -y"
     ]
   }
  
-  # Agregar repositorio PPA de Ansible e instalar ansible-core
+  # Instalar dependencias para EFS y Ansible
   provisioner "shell" {
     inline = [
+      "echo 'Instalando dependencias básicas...'",
+      "sudo apt-get install -y software-properties-common git curl nfs-common amazon-efs-utils"
+    ]
+  }
+ 
+  # Instalar Ansible desde PPA
+  provisioner "shell" {
+    inline = [
+      "echo 'Instalando Ansible...'",
       "sudo add-apt-repository --yes --update ppa:ansible/ansible",
       "sudo apt-get install -y ansible-core",
-      "ansible --version",
-      "echo 'Ansible instalado correctamente desde PPA oficial'"
+      "ansible --version"
     ]
   }
 
-  # Instalar colecciones de Ansible globalmente para que sudo pueda usarlas
+  # Instalar colecciones de Ansible globalmente
   provisioner "shell" {
     inline = [
-      "echo 'Instalando colecciones de Ansible globalmente...'",
+      "echo 'Instalando colecciones de Ansible...'",
       "sudo ansible-galaxy collection install community.mysql",
       "sudo ansible-galaxy collection install community.general", 
       "sudo ansible-galaxy collection install ansible.posix",
-      "echo 'Colecciones instaladas globalmente'",
       "sudo ansible-galaxy collection list"
     ]
   }
- 
-  # Ejecutar ansible-pull directamente desde el repositorio
+
+  # Crear directorio para montaje EFS (pero no montar aún)
   provisioner "shell" {
     inline = [
-      "sudo ansible-pull \\",
-      "  -U https://github.com/keaguirre/ansible-test-itop.git \\",
-      "  -d /etc/ansible-itop \\",
-      "  -i /etc/ansible-itop/inventory.ini \\",
-      "  /etc/ansible-itop/site.yml"
+      "echo 'Preparando estructura de directorios...'",
+      "sudo mkdir -p /var/www/html",
+      "sudo chown ubuntu:ubuntu /var/www/html"
     ]
   }
- 
-  # Verificar que la aplicación esté funcionando
+
+  # Crear script helper para montaje EFS
+  provisioner "file" {
+    content = <<-EOF
+      #!/bin/bash
+      # Helper script para montar EFS
+      # Uso: sudo /usr/local/bin/mount-efs.sh <efs-id>
+      
+      if [ -z "$1" ]; then
+        echo "Uso: $0 <efs-id>"
+        echo "Ejemplo: $0 fs-0123456789abcdef"
+        exit 1
+      fi
+      
+      EFS_ID=$1
+      MOUNT_POINT="/var/www/html"
+      
+      echo "Montando EFS $EFS_ID en $MOUNT_POINT..."
+      
+      # Montar EFS
+      mount -t efs -o tls $EFS_ID:/ $MOUNT_POINT
+      
+      # Agregar a fstab si no existe
+      if ! grep -q "$EFS_ID" /etc/fstab; then
+        echo "$EFS_ID:/ $MOUNT_POINT efs defaults,_netdev,tls 0 0" >> /etc/fstab
+        echo "Agregado a /etc/fstab"
+      fi
+      
+      # Verificar
+      if mountpoint -q $MOUNT_POINT; then
+        echo "EFS montado correctamente"
+        df -h | grep $MOUNT_POINT
+      else
+        echo "ERROR: Fallo al montar EFS"
+        exit 1
+      fi
+    EOF
+    destination = "/tmp/mount-efs.sh"
+  }
+
   provisioner "shell" {
     inline = [
-      "echo 'Verificando instalación de iTop...'",
-      "sudo systemctl status apache2 || true",
-      "sudo systemctl status mysql || true",
-      "curl -I http://localhost/ || true",
-      "echo 'Verificación completada'"
+      "sudo mv /tmp/mount-efs.sh /usr/local/bin/mount-efs.sh",
+      "sudo chmod +x /usr/local/bin/mount-efs.sh"
     ]
   }
- 
-  # Limpiar archivos temporales y logs
+
+  # Crear script helper para ejecutar ansible-pull
+  provisioner "file" {
+    content = <<-EOF
+      #!/bin/bash
+      # Helper script para ejecutar ansible-pull
+      # Uso: sudo /usr/local/bin/setup-itop.sh
+      
+      REPO_URL="https://github.com/keaguirre/ansible-test-itop.git"
+      BRANCH="main"
+      
+      echo "Ejecutando Ansible para configurar iTop..."
+      
+      ansible-pull \
+        -U $REPO_URL \
+        -C $BRANCH \
+        -d /etc/ansible-itop \
+        -i /etc/ansible-itop/inventory.ini \
+        /etc/ansible-itop/site.yml
+      
+      echo "Configuración completada"
+    EOF
+    destination = "/tmp/setup-itop.sh"
+  }
+
   provisioner "shell" {
-     inline = [
-       "sudo apt-get autoremove -y",
-       "sudo apt-get autoclean", 
-       "sudo rm -f /home/ubuntu/.bash_history",
-       "sudo rm -f /var/log/cloud-init*.log",
-       "sudo rm -f /var/log/auth.log*",
-       "sudo rm -f /var/log/syslog*",
-       "echo 'Limpieza completada - AMI lista para uso'"
-     ]
+    inline = [
+      "sudo mv /tmp/setup-itop.sh /usr/local/bin/setup-itop.sh",
+      "sudo chmod +x /usr/local/bin/setup-itop.sh"
+    ]
+  }
+
+  # Limpieza final
+  provisioner "shell" {
+    inline = [
+      "echo 'Limpiando sistema...'",
+      "sudo apt-get autoremove -y",
+      "sudo apt-get autoclean",
+      "sudo rm -f /home/ubuntu/.bash_history",
+      "sudo rm -f /var/log/cloud-init*.log",
+      "sudo rm -f /var/log/auth.log*",
+      "sudo rm -f /var/log/syslog*",
+      "echo 'AMI lista para uso en lab'"
+    ]
   }
 }
