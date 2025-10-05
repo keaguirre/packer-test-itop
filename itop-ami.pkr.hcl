@@ -74,6 +74,10 @@ source "amazon-ebs" "ubuntu" {
 build {
   name = "itop-lab-ami"
   sources = ["source.amazon-ebs.ubuntu"]
+  post-processor "manifest" {
+    output     = "manifest.json"
+    strip_path = true
+  }
  
   # Actualizar sistema base
   provisioner "shell" {
@@ -211,15 +215,5 @@ build {
       "sudo rm -f /var/log/syslog*",
       "echo 'AMI lista para uso en lab'"
     ]
-  }
-}
-
-build {
-  name = "itop-ami"
-  sources = ["source.amazon-ebs.ubuntu"]
-
-  post-processor "manifest" {
-    output     = "manifest.json"
-    strip_path = true
   }
 }
