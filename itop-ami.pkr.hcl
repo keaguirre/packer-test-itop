@@ -82,9 +82,12 @@ build {
   # Actualizar sistema base
   provisioner "shell" {
     inline = [
-      "echo 'Actualizando sistema base...'",
-      "sudo apt-get update",
-      "sudo apt-get upgrade -y"
+      "echo 'Preparando APT y repos...'",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get update -y || sudo apt-get update -y",
+      # asegúrate que universe está habilitado (necesario para varios paquetes)
+      "sudo add-apt-repository -y universe || true",
+      "sudo apt-get update -y",
     ]
   }
  
@@ -92,6 +95,7 @@ build {
   provisioner "shell" {
     inline = [
       "echo 'Instalando dependencias básicas...'",
+      "sudo apt-get update",
       "sudo apt-get install -y software-properties-common git curl nfs-common amazon-efs-utils"
     ]
   }
