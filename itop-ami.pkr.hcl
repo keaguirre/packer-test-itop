@@ -213,3 +213,13 @@ build {
     ]
   }
 }
+
+build {
+  name = "itop-ami"
+  sources = ["source.amazon-ebs.ubuntu"]
+
+  post-processor "manifest" {
+    output     = "manifest.json"
+    strip_path = true
+  }
+}
