@@ -16,8 +16,8 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "t3.medium"
-  description = "Tipo de instancia para el build"
+  default = "c5.large"
+  description = "Tipo de instancia para el build - c5.large tiene CPU dedicada sin throttling"
 }
 
 variable "ami_name_prefix" {
@@ -52,11 +52,13 @@ source "amazon-ebs" "ubuntu" {
   ssh_username = "ubuntu"
   ssh_timeout  = "20m"
  
-  # Configuración del volumen root
+  # Configuración del volumen root optimizado
   launch_block_device_mappings {
     device_name           = "/dev/sda1"
     volume_size          = 20
     volume_type          = "gp3"
+    iops                 = 3000
+    throughput           = 125
     delete_on_termination = true
   }
  
@@ -103,7 +105,7 @@ build {
   # Instalar dependencias de compilación para amazon-efs-utils
   provisioner "shell" {
     inline = [
-      "echo 'Instalando dependencias de compilación para amazon-efs-utils...'",
+      "echo 'Instalando dependencias de compilación...'",
       "export DEBIAN_FRONTEND=noninteractive",
       "sudo apt-get install -y git binutils rustc cargo pkg-config libssl-dev"
     ]
@@ -116,7 +118,8 @@ build {
       "cd /tmp",
       "git clone https://github.com/aws/efs-utils",
       "cd efs-utils",
-      "echo 'Compilando paquete Debian...'",
+      "echo 'Compilando paquete Debian con paralelismo máximo...'",
+      "export CARGO_BUILD_JOBS=$(nproc)",
       "./build-deb.sh",
       "echo 'Instalando amazon-efs-utils...'",
       "sudo apt-get install -y ./build/amazon-efs-utils*deb",
@@ -147,7 +150,7 @@ build {
     ]
   }
 
-  # Crear directorio para montaje EFS (pero no montar aún)
+  # Crear directorio para montaje EFS
   provisioner "shell" {
     inline = [
       "echo 'Preparando estructura de directorios...'",
@@ -157,77 +160,64 @@ build {
   }
 
   # Crear script helper para montaje EFS
-  provisioner "file" {
-    content = <<-EOF
-      #!/bin/bash
-      # Helper script para montar EFS
-      # Uso: sudo /usr/local/bin/mount-efs.sh <efs-id>
-      
-      if [ -z "$1" ]; then
-        echo "Uso: $0 <efs-id>"
-        echo "Ejemplo: $0 fs-0123456789abcdef"
-        exit 1
-      fi
-      
-      EFS_ID=$1
-      MOUNT_POINT="/var/www/html"
-      
-      echo "Montando EFS $EFS_ID en $MOUNT_POINT..."
-      
-      # Montar EFS con amazon-efs-utils (soporta TLS)
-      mount -t efs -o tls $EFS_ID:/ $MOUNT_POINT
-      
-      # Agregar a fstab si no existe
-      if ! grep -q "$EFS_ID" /etc/fstab; then
-        echo "$EFS_ID:/ $MOUNT_POINT efs defaults,_netdev,tls 0 0" >> /etc/fstab
-        echo "Agregado a /etc/fstab"
-      fi
-      
-      # Verificar
-      if mountpoint -q $MOUNT_POINT; then
-        echo "EFS montado correctamente"
-        df -h | grep $MOUNT_POINT
-      else
-        echo "ERROR: Fallo al montar EFS"
-        exit 1
-      fi
-    EOF
-    destination = "/tmp/mount-efs.sh"
-  }
-
   provisioner "shell" {
     inline = [
+      "cat > /tmp/mount-efs.sh << 'EOFSCRIPT'",
+      "#!/bin/bash",
+      "# Helper script para montar EFS",
+      "# Uso: sudo /usr/local/bin/mount-efs.sh <efs-id>",
+      "",
+      "if [ -z \"$1\" ]; then",
+      "  echo \"Uso: $0 <efs-id>\"",
+      "  echo \"Ejemplo: $0 fs-0123456789abcdef\"",
+      "  exit 1",
+      "fi",
+      "",
+      "EFS_ID=$1",
+      "MOUNT_POINT=\"/var/www/html\"",
+      "",
+      "echo \"Montando EFS $EFS_ID en $MOUNT_POINT...\"",
+      "",
+      "# Montar EFS con amazon-efs-utils (soporta TLS)",
+      "mount -t efs -o tls $EFS_ID:/ $MOUNT_POINT",
+      "",
+      "# Agregar a fstab si no existe",
+      "if ! grep -q \"$EFS_ID\" /etc/fstab; then",
+      "  echo \"$EFS_ID:/ $MOUNT_POINT efs defaults,_netdev,tls 0 0\" >> /etc/fstab",
+      "  echo \"Agregado a /etc/fstab\"",
+      "fi",
+      "",
+      "# Verificar",
+      "if mountpoint -q $MOUNT_POINT; then",
+      "  echo \"EFS montado correctamente\"",
+      "  df -h | grep $MOUNT_POINT",
+      "else",
+      "  echo \"ERROR: Fallo al montar EFS\"",
+      "  exit 1",
+      "fi",
+      "EOFSCRIPT",
       "sudo mv /tmp/mount-efs.sh /usr/local/bin/mount-efs.sh",
       "sudo chmod +x /usr/local/bin/mount-efs.sh"
     ]
   }
 
   # Crear script helper para ejecutar ansible-pull
-  provisioner "file" {
-    content = <<-EOF
-      #!/bin/bash
-      # Helper script para ejecutar ansible-pull
-      # Uso: sudo /usr/local/bin/setup-itop.sh
-      
-      REPO_URL="https://github.com/keaguirre/ansible-test-itop.git"
-      BRANCH="main"
-      
-      echo "Ejecutando Ansible para configurar iTop..."
-      
-      ansible-pull \
-        -U $REPO_URL \
-        -C $BRANCH \
-        -d /etc/ansible-itop \
-        -i /etc/ansible-itop/inventory.ini \
-        /etc/ansible-itop/site.yml
-      
-      echo "Configuración completada"
-    EOF
-    destination = "/tmp/setup-itop.sh"
-  }
-
   provisioner "shell" {
     inline = [
+      "cat > /tmp/setup-itop.sh << 'EOFSCRIPT'",
+      "#!/bin/bash",
+      "# Helper script para ejecutar ansible-pull",
+      "# Uso: sudo /usr/local/bin/setup-itop.sh",
+      "",
+      "REPO_URL=\"https://github.com/keaguirre/ansible-test-itop.git\"",
+      "BRANCH=\"main\"",
+      "",
+      "echo \"Ejecutando Ansible para configurar iTop...\"",
+      "",
+      "ansible-pull -U \"$REPO_URL\" -C \"$BRANCH\" -d /etc/ansible-itop -i /etc/ansible-itop/inventory.ini /etc/ansible-itop/site.yml",
+      "",
+      "echo \"Configuración completada\"",
+      "EOFSCRIPT",
       "sudo mv /tmp/setup-itop.sh /usr/local/bin/setup-itop.sh",
       "sudo chmod +x /usr/local/bin/setup-itop.sh"
     ]
