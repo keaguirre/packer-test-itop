@@ -74,29 +74,55 @@ source "amazon-ebs" "ubuntu" {
 build {
   name = "itop-lab-ami"
   sources = ["source.amazon-ebs.ubuntu"]
+  
   post-processor "manifest" {
     output     = "manifest.json"
     strip_path = true
   }
  
-  # Actualizar sistema base
+  # Actualizar sistema base y habilitar repositorios
   provisioner "shell" {
     inline = [
-      "echo 'Preparando APT y repos...'",
+      "echo 'Preparando APT y repositorios...'",
       "export DEBIAN_FRONTEND=noninteractive",
       "sudo apt-get update -y || sudo apt-get update -y",
-      # asegúrate que universe está habilitado (necesario para varios paquetes)
       "sudo add-apt-repository -y universe || true",
-      "sudo apt-get update -y",
+      "sudo apt-get update -y"
     ]
   }
  
-  # Instalar dependencias para EFS y Ansible
+  # Instalar dependencias básicas y NFS
   provisioner "shell" {
     inline = [
       "echo 'Instalando dependencias básicas...'",
-      "sudo apt-get update",
-      "sudo apt-get install -y software-properties-common git curl nfs-common amazon-efs-utils"
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get install -y software-properties-common git curl nfs-common"
+    ]
+  }
+  
+  # Instalar dependencias de compilación para amazon-efs-utils
+  provisioner "shell" {
+    inline = [
+      "echo 'Instalando dependencias de compilación para amazon-efs-utils...'",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get install -y git binutils rustc cargo pkg-config libssl-dev"
+    ]
+  }
+  
+  # Compilar e instalar amazon-efs-utils
+  provisioner "shell" {
+    inline = [
+      "echo 'Clonando repositorio de efs-utils...'",
+      "cd /tmp",
+      "git clone https://github.com/aws/efs-utils",
+      "cd efs-utils",
+      "echo 'Compilando paquete Debian...'",
+      "./build-deb.sh",
+      "echo 'Instalando amazon-efs-utils...'",
+      "sudo apt-get install -y ./build/amazon-efs-utils*deb",
+      "echo 'Limpiando archivos temporales...'",
+      "cd /tmp",
+      "rm -rf efs-utils"
     ]
   }
  
@@ -148,7 +174,7 @@ build {
       
       echo "Montando EFS $EFS_ID en $MOUNT_POINT..."
       
-      # Montar EFS
+      # Montar EFS con amazon-efs-utils (soporta TLS)
       mount -t efs -o tls $EFS_ID:/ $MOUNT_POINT
       
       # Agregar a fstab si no existe
