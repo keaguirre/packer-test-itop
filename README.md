@@ -81,6 +81,18 @@ PUBLIC_IP="x.x.x.x"  # reemplaza con la IP real obtenida del comando anterior
 ```bash
 ssh -i ~/.ssh/tu-keypair.pem ubuntu@$PUBLIC_IP
 ```
+### SSH Windows (Usando PowerShell)
+```powershell
+# Quitar herencia de permisos
+icacls .\key.pem /inheritance:r
+
+# Conceder solo permiso de lectura al usuario actual (reemplaza permisos existentes para ese usuario)
+icacls .\key.pem /grant:r "%USERNAME%:R"
+
+# Verificar permisos
+icacls .\key.pem
+```
+
 
 ### Verificar servicios (ejecutar dentro de la instancia)
 ```bash
