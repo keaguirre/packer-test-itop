@@ -87,7 +87,7 @@ ssh -i ~/.ssh/tu-keypair.pem ubuntu@$PUBLIC_IP
 icacls .\key.pem /inheritance:r
 
 # Conceder solo permiso de lectura al usuario actual (reemplaza permisos existentes para ese usuario)
-icacls .\key.pem /grant:r "%USERNAME%:R"
+icacls .\key.pem /grant:r "$($env:USERNAME):R"
 
 # Verificar permisos
 icacls .\key.pem
