@@ -16,8 +16,8 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "c5.large"
-  description = "Tipo de instancia para el build - c5.large tiene CPU dedicada sin throttling"
+  default = "c5.medium"
+  description = "Tipo de instancia para el build"
 }
 
 variable "ami_name_prefix" {
@@ -93,15 +93,37 @@ build {
     ]
   }
  
-  # Instalar dependencias básicas y NFS
+  # Instalar dependencias del sistema base
   provisioner "shell" {
     inline = [
-      "echo 'Instalando dependencias básicas...'",
+      "echo 'Instalando dependencias básicas del sistema...'",
       "export DEBIAN_FRONTEND=noninteractive",
-      "sudo apt-get install -y software-properties-common git curl nfs-common"
+      "sudo apt-get install -y software-properties-common git curl nfs-common wget unzip"
     ]
   }
   
+  # Instalar Apache y PHP (stack LAMP para iTop)
+  provisioner "shell" {
+    inline = [
+      "echo 'Instalando Apache y PHP...'",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get install -y apache2 libapache2-mod-php",
+      "sudo apt-get install -y php php-cli php-mysql php-ldap php-soap php-xml php-zip php-gd php-mbstring php-curl",
+      "echo 'Habilitando módulos de Apache...'",
+      "sudo a2enmod rewrite",
+      "sudo a2enmod php8.1 || sudo a2enmod php8.2 || sudo a2enmod php"
+    ]
+  }
+
+  # Instalar MariaDB/MySQL client (para conectarse a RDS)
+  provisioner "shell" {
+    inline = [
+      "echo 'Instalando cliente MySQL...'",
+      "export DEBIAN_FRONTEND=noninteractive",
+      "sudo apt-get install -y mariadb-client"
+    ]
+  }
+
   # Instalar dependencias de compilación para amazon-efs-utils
   provisioner "shell" {
     inline = [
@@ -150,12 +172,13 @@ build {
     ]
   }
 
-  # Crear directorio para montaje EFS
+  # Crear directorios necesarios
   provisioner "shell" {
     inline = [
       "echo 'Preparando estructura de directorios...'",
       "sudo mkdir -p /var/www/html",
-      "sudo chown ubuntu:ubuntu /var/www/html"
+      "sudo chown -R www-data:www-data /var/www/html",
+      "sudo chmod -R 755 /var/www"
     ]
   }
 
@@ -186,6 +209,10 @@ build {
       "  echo \"$EFS_ID:/ $MOUNT_POINT efs defaults,_netdev,tls 0 0\" >> /etc/fstab",
       "  echo \"Agregado a /etc/fstab\"",
       "fi",
+      "",
+      "# Ajustar permisos",
+      "chown -R www-data:www-data $MOUNT_POINT",
+      "chmod -R 755 $MOUNT_POINT",
       "",
       "# Verificar",
       "if mountpoint -q $MOUNT_POINT; then",
