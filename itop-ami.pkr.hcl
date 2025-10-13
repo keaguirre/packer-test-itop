@@ -16,7 +16,7 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "c5.large"
+  default = "c5.medium"
   description = "Tipo de instancia para el build"
 }
 
@@ -115,7 +115,7 @@ build {
     ]
   }
 
-  # Instalar MariaDB/MySQL client (para conectarse a RDS)
+  # Instalar MariaDB client (para conectarse a RDS)
   provisioner "shell" {
     inline = [
       "echo 'Instalando cliente MySQL...'",
@@ -172,52 +172,69 @@ build {
     ]
   }
 
-  # Crear directorios necesarios
+  # Crear estructura de directorios con permisos correctos
   provisioner "shell" {
     inline = [
       "echo 'Preparando estructura de directorios...'",
       "sudo mkdir -p /var/www/html",
-      "sudo chown -R www-data:www-data /var/www/html",
-      "sudo chmod -R 755 /var/www"
+      "sudo chown www-data:www-data /var/www/html",
+      "sudo chmod 755 /var/www/html",
+      "echo 'Directorio preparado (será sobremontado por EFS)'"
     ]
   }
 
-  # Crear script helper para montaje EFS
+  # Script 1: Montar EFS (solo montaje, no modifica contenido)
   provisioner "shell" {
     inline = [
       "cat > /tmp/mount-efs.sh << 'EOFSCRIPT'",
       "#!/bin/bash",
-      "# Helper script para montar EFS",
-      "# Uso: sudo /usr/local/bin/mount-efs.sh <efs-id>",
+      "set -e",
       "",
       "if [ -z \"$1\" ]; then",
-      "  echo \"Uso: $0 <efs-id>\"",
-      "  echo \"Ejemplo: $0 fs-0123456789abcdef\"",
+      "  echo \"Uso: $0 <efs-id> [region]\"",
+      "  echo \"Ejemplo: $0 fs-0123456789abcdef us-east-2\"",
       "  exit 1",
       "fi",
       "",
       "EFS_ID=$1",
+      "AWS_REGION=${2:-us-east-2}",
       "MOUNT_POINT=\"/var/www/html\"",
       "",
-      "echo \"Montando EFS $EFS_ID en $MOUNT_POINT...\"",
+      "echo \"[$(date)] Montando EFS $EFS_ID en $MOUNT_POINT...\"",
       "",
-      "# Montar EFS con amazon-efs-utils (soporta TLS)",
-      "mount -t efs -o tls $EFS_ID:/ $MOUNT_POINT",
+      "# Verificar que el punto de montaje existe",
+      "if [ ! -d \"$MOUNT_POINT\" ]; then",
+      "  echo \"ERROR: $MOUNT_POINT no existe\"",
+      "  exit 1",
+      "fi",
+      "",
+      "# Verificar si ya está montado",
+      "if mountpoint -q \"$MOUNT_POINT\"; then",
+      "  echo \"ADVERTENCIA: $MOUNT_POINT ya está montado\"",
+      "  df -h | grep $MOUNT_POINT",
+      "  exit 0",
+      "fi",
+      "",
+      "# Montar EFS con TLS",
+      "mount -t efs -o tls \"$EFS_ID:/\" \"$MOUNT_POINT\"",
       "",
       "# Agregar a fstab si no existe",
       "if ! grep -q \"$EFS_ID\" /etc/fstab; then",
       "  echo \"$EFS_ID:/ $MOUNT_POINT efs defaults,_netdev,tls 0 0\" >> /etc/fstab",
-      "  echo \"Agregado a /etc/fstab\"",
+      "  echo \"Entrada agregada a /etc/fstab\"",
       "fi",
       "",
-      "# Ajustar permisos",
-      "chown -R www-data:www-data $MOUNT_POINT",
-      "chmod -R 755 $MOUNT_POINT",
-      "",
-      "# Verificar",
-      "if mountpoint -q $MOUNT_POINT; then",
-      "  echo \"EFS montado correctamente\"",
+      "# Verificar montaje exitoso",
+      "if mountpoint -q \"$MOUNT_POINT\"; then",
+      "  echo \"[$(date)] EFS montado exitosamente\"",
       "  df -h | grep $MOUNT_POINT",
+      "  ",
+      "  # Asegurar permisos correctos (sin modificar contenido existente)",
+      "  chown www-data:www-data \"$MOUNT_POINT\"",
+      "  chmod 755 \"$MOUNT_POINT\"",
+      "  ",
+      "  echo \"Contenido actual:\"",
+      "  ls -la \"$MOUNT_POINT\" | head -10",
       "else",
       "  echo \"ERROR: Fallo al montar EFS\"",
       "  exit 1",
@@ -228,25 +245,83 @@ build {
     ]
   }
 
-  # Crear script helper para ejecutar ansible-pull
+  # Script 2: Instalar iTop con Ansible (solo instalación)
   provisioner "shell" {
     inline = [
-      "cat > /tmp/setup-itop.sh << 'EOFSCRIPT'",
+      "cat > /tmp/install-itop.sh << 'EOFSCRIPT'",
       "#!/bin/bash",
-      "# Helper script para ejecutar ansible-pull",
-      "# Uso: sudo /usr/local/bin/setup-itop.sh",
+      "set -e",
       "",
       "REPO_URL=\"https://github.com/keaguirre/ansible-test-itop.git\"",
       "BRANCH=\"main\"",
+      "DEST_DIR=\"/etc/ansible-itop\"",
       "",
-      "echo \"Ejecutando Ansible para configurar iTop...\"",
+      "echo \"[$(date)] Instalando iTop con Ansible...\"",
       "",
-      "ansible-pull -U \"$REPO_URL\" -C \"$BRANCH\" -d /etc/ansible-itop -i /etc/ansible-itop/inventory.ini /etc/ansible-itop/site.yml",
+      "# Ejecutar ansible-pull",
+      "ansible-pull \\",
+      "  -U \"$REPO_URL\" \\",
+      "  -C \"$BRANCH\" \\",
+      "  -d \"$DEST_DIR\" \\",
+      "  -i \"$DEST_DIR/inventory.ini\" \\",
+      "  \"$DEST_DIR/site.yml\"",
       "",
-      "echo \"Configuración completada\"",
+      "echo \"[$(date)] Instalación de iTop completada\"",
       "EOFSCRIPT",
-      "sudo mv /tmp/setup-itop.sh /usr/local/bin/setup-itop.sh",
-      "sudo chmod +x /usr/local/bin/setup-itop.sh"
+      "sudo mv /tmp/install-itop.sh /usr/local/bin/install-itop.sh",
+      "sudo chmod +x /usr/local/bin/install-itop.sh"
+    ]
+  }
+
+  # Script 3: Inicialización inteligente optimizada
+  provisioner "shell" {
+    inline = [
+      "cat > /tmp/initialize-itop.sh << 'EOFSCRIPT'",
+      "#!/bin/bash",
+      "set -e",
+      "",
+      "MOUNT_POINT=\"/var/www/html\"",
+      "ITOP_MARKER=\"$MOUNT_POINT/web/pages/UI.php\"",
+      "",
+      "echo \"========================================\"",
+      "echo \"iTop Initialization Script\"",
+      "echo \"$(date)\"",
+      "echo \"========================================\"",
+      "",
+      "# Verificar que EFS está montado",
+      "if ! mountpoint -q \"$MOUNT_POINT\"; then",
+      "  echo \"ERROR: EFS no está montado en $MOUNT_POINT\"",
+      "  echo \"Ejecuta: sudo /usr/local/bin/mount-efs.sh <efs-id>\"",
+      "  exit 1",
+      "fi",
+      "",
+      "echo \"✓ EFS montado correctamente\"",
+      "echo \"\"",
+      "",
+      "# Verificar si iTop ya existe",
+      "if [ -f \"$ITOP_MARKER\" ]; then",
+      "  echo \"✓ iTop YA existe en EFS\"",
+      "  echo \"→ Solo reiniciando Apache...\"",
+      "  systemctl restart apache2",
+      "  echo \"✓ Apache reiniciado\"",
+      "  echo \"\"",
+      "  echo \"Estado: LISTO\"",
+      "  echo \"URL: http://$(hostname -I | awk '{print $1}')/\"",
+      "else",
+      "  echo \"⚠ iTop NO encontrado (primera instalación)\"",
+      "  echo \"→ Ejecutando instalación con Ansible...\"",
+      "  echo \"\"",
+      "  /usr/local/bin/install-itop.sh",
+      "  echo \"\"",
+      "  echo \"✓ Instalación completada\"",
+      "  echo \"Estado: REQUIERE CONFIGURACIÓN\"",
+      "  echo \"URL: http://$(hostname -I | awk '{print $1}')/setup/\"",
+      "fi",
+      "",
+      "echo \"========================================\"",
+      "EOFSCRIPT",
+      "sudo mv /tmp/initialize-itop.sh /usr/local/bin/initialize-itop.sh",
+      "sudo chmod +x /usr/local/bin/initialize-itop.sh"
     ]
   }
 
