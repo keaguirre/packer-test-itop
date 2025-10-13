@@ -1,0 +1,4 @@
+# .gitattributes
+*.hcl text eol=lf
+*.pkr.hcl text eol=lf
+*.sh text eol=lf
