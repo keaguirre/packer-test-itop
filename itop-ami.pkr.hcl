@@ -16,7 +16,7 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "c5.medium"
+  default = "c5.large"
   description = "Tipo de instancia para el build"
 }
 
@@ -197,7 +197,7 @@ build {
       "fi",
       "",
       "EFS_ID=$1",
-      "AWS_REGION=${2:-us-east-2}",
+      "AWS_REGION=$${2:-us-east-2}",
       "MOUNT_POINT=\"/var/www/html\"",
       "",
       "echo \"[$(date)] Montando EFS $EFS_ID en $MOUNT_POINT...\"",
