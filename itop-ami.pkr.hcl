@@ -176,9 +176,9 @@ build {
   provisioner "shell" {
     inline = [
       "echo 'Preparando estructura de directorios...'",
-      "sudo mkdir -p /var/www/html",
-      "sudo chown www-data:www-data /var/www/html",
-      "sudo chmod 755 /var/www/html",
+      "sudo mkdir -p /var/www/itop",
+      "sudo chown www-data:www-data /var/www/itop",
+      "sudo chmod 755 /var/www/itop",
       "echo 'Directorio preparado (será sobremontado por EFS)'"
     ]
   }
@@ -198,7 +198,7 @@ build {
       "",
       "EFS_ID=$1",
       "AWS_REGION=$${2:-us-east-2}",
-      "MOUNT_POINT=\"/var/www/html\"",
+      "MOUNT_POINT=\"/var/www/itop\"",
       "",
       "echo \"[$(date)] Montando EFS $EFS_ID en $MOUNT_POINT...\"",
       "",
@@ -280,7 +280,7 @@ build {
       "#!/bin/bash",
       "set -e",
       "",
-      "MOUNT_POINT=\"/var/www/html\"",
+      "MOUNT_POINT=\"/var/www/itop\"",
       "ITOP_MARKER=\"$MOUNT_POINT/web/pages/UI.php\"",
       "",
       "echo \"========================================\"",
