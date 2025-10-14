@@ -115,6 +115,36 @@ build {
     ]
   }
 
+    # Drop-in systemd para que Apache espere a que /var/www/itop esté montado (EFS)
+  provisioner "shell" {
+    inline = [
+      "echo 'Creando drop-in de systemd para que Apache espere el EFS (/var/www/itop)...'",
+      "SVC='apache2'; systemctl list-unit-files | grep -q '^httpd.service' && SVC='httpd'",
+
+      # Crear carpeta del drop-in según el servicio detectado
+      "sudo mkdir -p /etc/systemd/system/$SVC.service.d",
+
+      # Escribir el drop-in
+      "sudo tee /etc/systemd/system/$SVC.service.d/efs-wait.conf >/dev/null <<'EOF'",
+      "[Unit]",
+      "After=network-online.target remote-fs.target",
+      "RequiresMountsFor=/var/www/itop",
+      "EOF",
+
+      # (Opcional) asegurar que el wait-online esté disponible/activo (no rompe si no existe)
+      "sudo systemctl enable systemd-networkd-wait-online.service 2>/dev/null || true",
+
+      # Recargar systemd y habilitar el servicio web para el próximo boot
+      "sudo systemctl daemon-reload",
+      "sudo systemctl enable $SVC",
+
+      # Mostrar cómo quedó
+      "echo '--- systemd drop-in ---'",
+      "sudo systemctl cat $SVC | sed -n '1,200p'"
+    ]
+  }
+
+
   # Instalar MariaDB client (para conectarse a RDS)
   provisioner "shell" {
     inline = [
