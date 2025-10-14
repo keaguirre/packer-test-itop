@@ -16,7 +16,7 @@ variable "aws_region" {
 
 variable "instance_type" {
   type    = string
-  default = "c5.large"
+  default = "c5.2xlarge"
   description = "Tipo de instancia para el build"
 }
 
