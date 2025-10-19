@@ -1,8 +1,7 @@
 # iTop AMI con Packer y Terraform en AWS
 Repositorio de prueba para construir una AMI personalizada de iTop usando Packer y lanzar una instancia EC2 con Terraform.
 
-## 1. Lanzamiento de Instancia de Prueba
-### Configurar usuario de IAM en AWS
+## 1. Configurar usuario de IAM en AWS
 
   1. `IAM` -> `Users` -> `Add user`
   2. Nombre de usuario: `your-username` -> Next
@@ -24,7 +23,7 @@ Necesitarás ajustar estos valores según tu setup:
 - Tener los permisos necesario para crear la infrastructura en AWS
 
 
-## Construir la AMI
+## 2. Construir la AMI
 ```bash
 # Inicializar plugins (primera vez)
 packer init .
@@ -39,7 +38,7 @@ packer build .
 packer build -var-file="variables.pkrvars.hcl" .
 ```
 
-### Lanzar la instancia
+## 3. Lanzar la instancia
 ```bash
 # Clonar el repositorio de Terraform
 git clone https://github.com/keaguirre/terraform-itop-deploy
@@ -82,7 +81,7 @@ chmod 400 ./key.pem
 ls -l ./key.pem 
 ```
 
-## 7. Diagrama de Arquitectura
+## 5. Diagrama de Arquitectura
 ```mermaid
 ---
 config:
