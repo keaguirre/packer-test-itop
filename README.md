@@ -1,22 +1,37 @@
-# packer-test
+# iTop AMI con Packer y Terraform en AWS
+Repositorio de prueba para construir una AMI personalizada de iTop usando Packer y lanzar una instancia EC2 con Terraform.
 
-Proyecto para crear una AMI de iTop usando Packer.
+## 1. Lanzamiento de Instancia de Prueba
+### Configurar usuario de IAM en AWS
 
-## 1. Construcción de la AMI
+  1. `IAM` -> `Users` -> `Add user`
+  2. Nombre de usuario: `your-username` -> Next
+  3. Permissions options: Add user to group -> Next -> Create user
+  4. Ve a `your-username`:
+      - `Permissions` -> `Permissions policies`
+      - `Add permissions` -> `Create inline policy` -> `JSON`
+      - Ve a `/docs/packer-iam-policy.json`, copia el contenido y pégalo en el `Policy Editor`
+      - Crea otra inline policy repitiendo el paso anterior pero esta vez:
+        - Ve a `/docs/terraform-iam-policy.json`, copia el contenido y pégalo en el `Policy Editor`
+  5. Ve a `your-username` -> `Security credentials` -> `Create access key`
+      - Command line interface -> Next
+      - Copia Access key ID y Secret access key
+  6. En la terminal local ejecuta `aws configure` e ingresa las claves copiadas
 
-### Inicializar plugins (primera vez)
+Necesitarás ajustar estos valores según tu setup:
+- `tu-ssh-keypair`: nombre de tu key pair
+- `Packer`&`Terraform` instalado y configurado con `AWS CLI`
+- Tener los permisos necesario para crear la infrastructura en AWS
+
+
+## Construir la AMI
 ```bash
+# Inicializar plugins (primera vez)
 packer init .
-```
 
-### Validar la configuración de Packer
-```bash
+# Validar la configuración de Packer
 packer validate .
-```
 
-
-### Construir la AMI
-```bash
 # Construcción básica
 packer build .
 
@@ -24,131 +39,49 @@ packer build .
 packer build -var-file="variables.pkrvars.hcl" .
 ```
 
-## 2. Verificación de AMIs Creadas
-
-### Listar las AMIs de iTop creadas
-```bash
-aws ec2 describe-images --owners self \
-  --query 'Images[?starts_with(Name, `itop-server`)].{Name:Name,ImageId:ImageId,CreationDate:CreationDate}' \
-  --output table
-```
-
-### Obtener el ID de la AMI más reciente
-```bash
-AMI_ID=$(aws ec2 describe-images --owners self \
-  --query 'Images[?starts_with(Name, `itop-server`)] | sort_by(@, &CreationDate) | [-1].ImageId' \
-  --output text)
-
-echo "AMI ID: $AMI_ID"
-```
-
-## 3. Lanzamiento de Instancia de Prueba
-
-### Configurar valores necesarios
-Necesitarás ajustar estos valores según tu setup:
-- `tu-keypair`: nombre de tu key pair
-- `sg-xxxxxxxx`: security group que permita HTTP (80) y SSH (22)  
-- `subnet-xxxxxxx`: subnet pública donde lanzar
-
 ### Lanzar la instancia
 ```bash
-aws ec2 run-instances \
-  --image-id $AMI_ID \
-  --count 1 \
-  --instance-type t3.medium \
-  --key-name tu-keypair \
-  --security-groups default \
-  --associate-public-ip-address \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=iTop-Validation-Test}]'
-```
+# Clonar el repositorio de Terraform
+git clone https://github.com/keaguirre/terraform-itop-deploy
 
-### Esperar que la instancia esté lista
-```bash
-aws ec2 describe-instances \
-  --filters "Name=tag:Name,Values=iTop-Validation-Test" "Name=instance-state-name,Values=running" \
-  --query 'Reservations[].Instances[].{InstanceId:InstanceId,PublicIP:PublicIpAddress,State:State.Name}' \
-  --output table
-```
+cd terraform-itop-deploy
 
-### Guardar la IP pública
-```bash
-PUBLIC_IP="x.x.x.x"  # reemplaza con la IP real obtenida del comando anterior
+# Inicializar Terraform
+terraform init
+
+# Aplicar la configuración (ajusta variables según tu setup)
+terrafom apply --auto-approve -var="key_name=tu-ssh-keypair"
+
+# Eliminar la infraestructura creada
+terrafom destroy --auto-approve -var="key_name=tu-ssh-keypair"
 ```
 
 ## 4. Validación de la Instalación
+Terraform al finalizar mostrará la IP pública de la instancia + el comando SSH para conectarse. Usa esa información para conectarte.
 
-### Conectar a la instancia
-```bash
-ssh -i ~/.ssh/tu-keypair.pem ubuntu@$PUBLIC_IP
+> [!NOTE]  
+> Necesitarás la clave privada `.pem` asociada al key pair usado + permisos adecuados en el archivo `.pem`.
+### Windows: 
+
+  ```powershell
+  # Quitar herencia de permisos
+  icacls .\key.pem /inheritance:r
+
+  # Conceder solo permiso de lectura al usuario actual (reemplaza permisos existentes para ese usuario)
+  icacls .\key.pem /grant:r "$($env:USERNAME):R"
+
+  # Verificar permisos
+  icacls .\key.pem
 ```
-### SSH Windows (Usando PowerShell)
-```powershell
-# Quitar herencia de permisos
-icacls .\key.pem /inheritance:r
-
-# Conceder solo permiso de lectura al usuario actual (reemplaza permisos existentes para ese usuario)
-icacls .\key.pem /grant:r "$($env:USERNAME):R"
+### Linux:
+```bash
+# Ajustar permisos
+chmod 400 ./key.pem
 
 # Verificar permisos
-icacls .\key.pem
+ls -l ./key.pem 
 ```
 
-
-### Verificar servicios (ejecutar dentro de la instancia)
-```bash
-# Verificar estado de servicios
-sudo systemctl status apache2
-sudo systemctl status mariadb  
-sudo systemctl status php8.1-fpm
-
-# Verificar que los puertos estén escuchando
-sudo netstat -tlnp | grep :80
-sudo netstat -tlnp | grep :3306
-```
-
-### Verificar archivos de iTop
-```bash
-# Verificar archivos de iTop
-ls -la /var/www/html/
-ls -la /var/www/html/setup/
-
-# Verificar permisos
-ls -la /var/www/html/ | grep -E "(conf|data|log)"
-```
-
-### Probar conectividad a base de datos
-```bash
-# Probar conectividad a MySQL
-mysql -u itop_user -p -e "SELECT VERSION();"
-# (usa la contraseña configurada en group_vars/itop.yml)
-```
-
-### Salir de SSH
-```bash
-exit
-```
-
-## 5. Pruebas Externas
-
-### Probar acceso web
-```bash
-# Probar desde línea de comandos
-curl -I http://$PUBLIC_IP/
-
-# Debería devolver algo como:
-# HTTP/1.1 302 Found
-# Location: ./setup/index.php
-```
-
-## 6. Limpieza
-
-### Terminar la instancia de prueba
-```bash
-# Terminar cuando hayas terminado las pruebas
-aws ec2 terminate-instances --instance-ids i-xxxxxxxxx
-
-# O mantenerla si quieres seguir probando
-```
 ## 7. Diagrama de Arquitectura
 ```mermaid
 ---
@@ -215,5 +148,4 @@ flowchart RL
     SSM["SSM Parameter Store"] --> EP1
     KMS["KMS"] --> SSM & RDS & EFS
     IAM["IAM Roles"] --> APP & Lambda1
-
 ```
