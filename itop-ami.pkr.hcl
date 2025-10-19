@@ -282,7 +282,7 @@ build {
       "#!/bin/bash",
       "set -e",
       "",
-      "REPO_URL=\"https://github.com/keaguirre/ansible-test-itop.git\"",
+      "REPO_URL=\"https://github.com/keaguirre/ansible-itop-setup.git\"",
       "BRANCH=\"main\"",
       "DEST_DIR=\"/etc/ansible-itop\"",
       "",
