@@ -1,0 +1,33 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:*",
+                "elasticfilesystem:*",
+                "rds:*",
+                "iam:CreateRole",
+                "iam:DeleteRole",
+                "iam:GetRole",
+                "iam:PassRole",
+                "iam:AttachRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:CreateInstanceProfile",
+                "iam:DeleteInstanceProfile",
+                "iam:AddRoleToInstanceProfile",
+                "iam:RemoveRoleFromInstanceProfile",
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy",
+                "lambda:*",
+                "cloudwatch:*",
+                "logs:*",
+                "sns:*",
+                "ssm:*",
+                "kms:*",
+                "route53:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
